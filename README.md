@@ -1,105 +1,69 @@
-# Especificação Detalhada: Assinador CLI (`assinatura`)
+# Sistema Runner - Plataforma HubSaúde
 
-## 1. Visão Geral
+![Status](https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow) ![Go](https://img.shields.io/badge/Go-1.25-blue) ![Java](https://img.shields.io/badge/Java-21%20LTS-red)
 
-O **Assinador CLI** (distribuído como o executável `assinatura`) é o principal ponto de contato do usuário com o subsistema de assinaturas digitais do Sistema Runner. Ele atua como um orquestrador leve e multiplataforma, responsável por abstrair a complexidade do ambiente Java e facilitar a interação com as regras de negócio criptográficas contidas no `assinador.jar`.
+O **Sistema Runner** é uma plataforma de interoperabilidade de dados em saúde para a Secretaria de Estado de Saúde de Goiás (SES-GO) / UFG. O projeto facilita a execução de lógicas criptográficas (regras de assinatura digital e validação FHIR) via aplicações CLI (**Zero Install**), eliminando a complexidade de gestão de ambiente (ex: instalação do Java) para o utilizador final.
 
-## 2. Objetivos
+---
 
-* **Abstração de Ambiente:** Garantir que o usuário final não precise saber instalar, configurar ou gerenciar variáveis de ambiente do Java (JDK/JRE).
-* **Usabilidade:** Fornecer uma interface semântica baseada em comandos e *flags* (padrão POSIX) para operações de criação e validação de assinaturas.
-* **Orquestração de Processos:** Gerenciar o ciclo de vida do backend Java (`assinador.jar`), decidindo entre invocações efêmeras (*Cold Start*) ou contínuas (*Warm Start* / Modo Servidor).
-* **Integração:** Fornecer saídas de dados estruturadas e previsíveis (como JSON) para facilitar a automação por outros sistemas ou scripts de teste.
+## 🏗️ 1. Padrões de Arquitetura (DDD)
 
-## 3. Requisitos Funcionais (Histórias de Usuário)
+A solução foi separada visando o estrito controle de falhas humanas (UX) versus a rigidez técnica das especificações criptográficas da saúde.
 
-### US-01: Invocar Assinador via CLI
-**Como** usuário do Sistema Runner  
-**Quero** executar comandos de assinatura digital através de uma interface de terminal semântica  
-**Para que** eu possa criar e validar assinaturas sem conhecer os comandos ou parâmetros internos da JVM.
+* **Open Host Service (OHS) - `assinador.jar` (Java 21):** O motor que hospeda as regras de negócio de assinatura e validação no padrão SES-GO. Ele expõe um contrato estrito (baseado nos Bundles FHIR) e **não** possui tolerância para erros ou problemas de *input/formatação*. Recebe as informações limpas e atua diretamente.
+* **Anti-Corruption Layer (ACL) - CLIs (Go 1.25):** Atuam como escudos de UX, interceptando as interações humanas e traduzindo os inputs (seja por *flags* ou interativamente) num formato Data Transfer Object (DTO) válido para o OHS. Qualquer erro retornado pelo `assinador` (como *Stack Traces* e erros complexos FHIR) será intercetado pelo CLI em Go e traduzido numa mensagem semântica focada no utilizador.
 
-**Critérios de Aceitação:**
-- [ ] O CLI deve possuir os subcomandos explícitos `criar` e `validar`.
-- [ ] O CLI deve aceitar o caminho do arquivo de entrada via flag (ex: `--documento`).
-- [ ] O CLI deve capturar a saída de execução do `assinador.jar` e exibi-la formatada no terminal.
-- [ ] O CLI deve prover ajuda contextual via flag `--help` global e por subcomando.
+---
 
-### US-02: Provisionar JDK Isolado Automaticamente
-**Como** usuário do Sistema Runner  
-**Quero** que o CLI baixe e isole um JDK compatível apenas quando necessário  
-**Para que** eu não precise instalar o Java manualmente, nem corra o risco do CLI alterar ou conflitar com a versão do Java instalada no meu sistema operacional.
+## 📦 2. Os Três Componentes Entregáveis
 
-**Critérios de Aceitação:**
-- [ ] O CLI deve detectar se o Java já está disponível na versão exigida.
-- [ ] Se ausente, deve realizar o download de uma distribuição confiável (ex: Eclipse Temurin JRE/JDK) em *background*.
-- [ ] O Java baixado deve ser armazenado em um diretório oculto exclusivo da ferramenta (ex: `~/.runner/jdk/`).
-- [ ] O CLI deve injetar a variável `JAVA_HOME` apontando para este diretório isolado **apenas** no contexto da invocação do `assinador.jar`.
+### A) Assinador CLI (`assinatura` - Escrito em Go)
+Interface principal do utilizador.
+* **Zero Install:** Baixa automaticamente um JDK 21 (ex: Eclipse Temurin JRE) limpo, isolando-o na pasta local `~/.hubsaude/jdk/`.
+* **Cold Start vs Warm Start:** O CLI orquestra a aplicação Java de acordo com a latência necessária:
+  * *Cold Start:* Invocação tradicional e efémera (`java -jar`) para casos pontuais.
+  * *Warm Start:* Inicia o assinador.jar em modo Servidor Web / Daemon (`daemon start`). Em seguida, envia os *inputs* via requisições HTTP REST (rotas `/sign` e `/validate`), baixando drasticamente a latência para processamentos contínuos.
 
-### US-03: Gerenciar o Modo Servidor (Warm Start)
-**Como** sistema integrador com necessidade de alta performance  
-**Quero** poder iniciar e parar o `assinador.jar` em modo *daemon* (servidor HTTP em *background*)  
-**Para que** o CLI possa processar múltiplas requisições de assinatura com baixa latência, evitando o custo de inicialização repetida da JVM (*cold start*).
+### B) Simulador CLI (`simulador` - Escrito em Go)
+Focado apenas na monitorização e execução do `simulador.jar`.
+* **Transferência automática:** Faz o *download* da última versão pelo GitHub Releases, armazenando-a com controle de integridade.
+* **Gestão de Ciclo de Vida Avançado (Edge Cases):**
+  * Mantém o registo num ficheiro *Lockfile* / *State JSON* único (`~/.hubsaude/state.json`) contendo PIDs e portos guardados.
+  * *Health Checks:* Verifica a saúde do servidor simulador Java através de rotas `HTTP GET /health`, evitando criar processos "zombie" (PIDs reaproveitados falsamente positivos do S.O.).
+  * Verificações rigorosas de portas em uso antes do arranque (`simulador start`, `simulador stop`).
 
-**Critérios de Aceitação:**
-- [ ] O CLI deve possuir subcomandos de ciclo de vida: `daemon start`, `daemon stop` e `daemon status`.
-- [ ] Ao executar `assinatura criar` ou `assinatura validar`, o CLI deve verificar se o daemon local está ativo (via ping em porta pré-definida, ex: `8080`).
-- [ ] Se o daemon estiver ativo, o CLI deve enviar os parâmetros via requisição HTTP (REST/JSON).
-- [ ] Se o daemon não estiver ativo, o CLI deve realizar a invocação direta tradicional via linha de comando (`java -jar`).
+### C) Assinador Backend (`assinador.jar` - Escrito em Java)
+* O núcleo de Validação FHIR (via biblioteca como HAPI FHIR) baseada rigorosamente nos *Guidelines* de criação de assinatura digital da SES.GO.
+* Possui o *parser* que constrói JWTs, gera Base64Url, trata carimbos de tempo em Timestamp UTC, gerando o pacote tipo **Signature**.
+* Suporte oficial para lidar com a placa *SunPKCS11*, abstraindo ficheiros .so/.dll como driver no S.O., atuando como ponte direta para o hardware.
 
-### US-04: Saída Estruturada e Tratamento de Erros
-**Como** engenheiro de automação / desenvolvedor de CI  
-**Quero** que o CLI retorne resultados em formatos estruturados e trate erros de forma elegante  
-**Para que** eu possa integrar a ferramenta facilmente em *pipelines* e *scripts* de validação.
+---
 
-**Critérios de Aceitação:**
-- [ ] Suporte à flag `--output=json` para forçar a saída do terminal em JSON válido.
-- [ ] Exceções originadas no `assinador.jar` não devem vazar como *Stack Traces* crus para o usuário, devendo ser parseadas em mensagens concisas (ex: "Erro de Validação FHIR: Campo X ausente").
-- [ ] Retornar *Exit Codes* apropriados (ex: `0` para sucesso, `1` para erro de validação, `2` para erro de ambiente).
+## 🛡️ 3. O Contrato de Entrada (Regras de Assinatura)
 
-## 4. Requisitos Não Funcionais (Qualidade - ISO 25010)
+As submissões do CLI em Go para o Java obrigam os seguintes mapeamentos estritos (passados via *flags* POSIX de Terminal):
+* **Ficheiro Alvo:** Um ficheiro JSON FHIR Bundle local mapeado em `--bundle` e `--provenance` apontando os caminhos, para evitar sobrecarga de *buffer* em *strings* gigantescas.
+* **Autenticação:** As múltiplas estratégias para leitura da Chave Privada:
+  * `PEM`: Exige Chave PKCS#8 (+ senha se criptografada).
+  * `PKCS#12`: Exibe o path, alias e senha para descriptografia do conteúdo.
+  * `Token` ou `Smartcard (PKCS#11)`: Requer o PIN, o Identificador, sendo tratado fisicamente pelo driver JDBC-like do PKCS11.
+  * `Remote`: Endereço de URL e credenciais para consumir o Key Vault remoto.
+* **Timestamp & Políticas Temporais:** Input natural transformado pelo CLI em carimbos ISO-8601 estritos (`--timestamp`), juntamente com o modelo de tempo `iat` (Instant) ou `tsa` (Timestamping Authority).
+* **Política de Assinatura (sigPId):** Fixada pelo parâmetro `--pid`, aguardando `br.go.ses.seguranca|0.0.2`.
+* **Certificado (x5c):** Em formato arquivo referenciado do signatário (`--cert`).
 
-1. **Portabilidade:** Os binários devem ser compilados de forma estática, sem dependências dinâmicas complexas, suportando nativamente:
-   - Windows (`amd64`)
-   - Linux (`amd64`)
-   - macOS (`amd64` e `arm64` / Apple Silicon).
-2. **Desempenho (Latência):**
-   - No modo *Warm Start* (via HTTP), o *overhead* introduzido pelo roteamento do CLI não deve ultrapassar **50ms** somados ao tempo de resposta do Java.
-3. **Segurança (Supply Chain):** Todos os artefatos de release do CLI devem ser assinados criptograficamente utilizando **Cosign/Sigstore**, e a verificação deve ser parte integrante da documentação de instalação.
+---
 
-## 5. Design da Interface de Linha de Comando (CLI)
+## ✨ 4. Experiência de Usuário (UX) & Requisitos Non-Funcionais
 
-A estrutura de comandos proposta para a aplicação `assinatura`:
+* **O Fim da "Ditadura das Flags":** Embora as *flags* existam para *scripts* de Pipeline/Automação de Testes (`--output=json`), utilizadores comuns que invocam o comando "vazio" (`assinatura sign`) passarão por um modo **100% interativo** de Q&A de terminal. Menus selecionáveis interativos, abas com setas de opções e caixas de seleção, ocultando a complexidade.
+* **Feedback Visual Constante e Spinners:** Em tarefas com processadores bloqueantes como descarregar Java, conferir Hash Sigstore ICP-Brasil e carregamento de *middleware* Driver .dll, *Spinners* de terminal deverão garantir visibilidade absoluta de estado ativo, nunca dando sensação de congelamento.
+* **Hardware Security Keys (Efeito UAU):** Previsto ativamente a integração física de Hardware/Chaves USB (Tokens e Smartcards). O componente Go + Java parará ativamente a execução da interface lançando pop-ups visuais no terminal em espera (Ex: *"Tocar na chave USB piscante para confirmar inserção biométrica!"*).
+* **Tratamento Seguro de Exceções:** Sem visibilidade técnica da API Java pelo terminal, encapsulados em JSON formatados.
 
-```bash
-# Ajuda e informações da ferramenta
-$assinatura --help$ assinatura version
+---
 
-# ---------------------------------------------
-# 1. Operações Core de Assinatura
-# ---------------------------------------------
-# Cria uma assinatura simulada para um documento
-$ assinatura criar --documento ./receita.json --token true --output json
+## 🚀 5. Segurança da Pipeline (CI/CD)
 
-# Valida uma assinatura existente
-$ assinatura validar --documento ./receita_assinada.json
-
-# ---------------------------------------------
-# 2. Gerenciamento do Backend (Modo Servidor)
-# ---------------------------------------------
-# Inicia o assinador.jar em background aguardando requisições HTTP
-$ assinatura daemon start --port 8080
-
-# Verifica se o daemon está rodando e seu consumo de memória
-$ assinatura daemon status
-
-# Encerra o processo do daemon
-$ assinatura daemon stop
-
-# ---------------------------------------------
-# 3. Diagnóstico e Ambiente
-# ---------------------------------------------
-# Exibe informações sobre o JDK isolado e os caminhos dos binários
-$ assinatura env info
-
-# Força a atualização do JDK ou do assinador.jar associado
-$ assinatura env update
+* **Build Multiplataforma Efetivo:** Distribuindo os executáveis compilados de forma estática para Windows `amd64.exe`, Linux `amd64.AppImage`, macOS `amd64.dmg` / `arm64.dmg`.
+* **Assinaturas Criptográficas / Supply Chain:** Artefatos de release CI/CD (Github Actions) obrigatoriamente selados usando **Cosign / Sigstore**, em conjunto com a identidade *OIDC* do próprio assinador, com anexos *.pem e *.sig no Repositório de Software. Os Hashes do `.zip` contendo ICP-Brasil devem ser estritamente controlados em *Trust Stores* e *Caches*.
