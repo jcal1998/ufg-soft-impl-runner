@@ -1,9 +1,10 @@
 package process
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
-	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,7 +39,7 @@ func findJavaExec(jdkDir string) (string, error) {
 }
 
 // StartBackground executa o Java em background e monitoriza a saúde até dar boot
-func StartBackground(port int) error {
+func StartBackground(port int, jarVersion string) error {
 	home, _ := os.UserHomeDir()
 	jdkDir := filepath.Join(home, ".hubsaude", "jdk")
 	jdkPath, err := findJavaExec(jdkDir)
@@ -63,7 +64,7 @@ func StartBackground(port int) error {
 		PID:         cmd.Process.Pid,
 		Port:        port,
 		JDKPath:     jdkPath,
-		JarVersion:  "1.0.0", // mock versão
+		JarVersion:  jarVersion, // Usa a versão dinâmica resolvida da API do Github
 		LastStarted: time.Now(),
 	}
 	state.Save(currentState)
@@ -71,20 +72,30 @@ func StartBackground(port int) error {
 	return WaitForHealth(port)
 }
 
-// WaitForHealth aguarda ativamente a porta TCP ser aberta
+// WaitForHealth aguarda ativamente a API retornar resposta HTTP (ignora SSL)
 func WaitForHealth(port int) error {
-	address := fmt.Sprintf("localhost:%d", port)
+	// A spec cita https://localhost:8443, então se mudarmos a porta, devemos checar https
+	url := fmt.Sprintf("https://localhost:%d/health", port)
+	
+	// Como o certificado localhost é self-signed, precisamos pular a verificação TLS
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := http.Client{Timeout: 2 * time.Second, Transport: tr}
 
-	return ui.RunWithSpinner("Aguardando inicialização do Simulador (TCP Check)...", func() error {
-		for i := 0; i < 60; i++ { // wait up to 30 seconds (500ms * 60) for heavy Spring Boot
-			conn, err := net.DialTimeout("tcp", address, 1*time.Second)
+	return ui.RunWithSpinner("Aguardando inicialização do Simulador (Health Check HTTP)...", func() error {
+		for i := 0; i < 40; i++ { // wait up to 20 seconds (500ms * 40)
+			resp, err := client.Get(url)
 			if err == nil {
-				conn.Close()
-				return nil // boot sucesso
+				resp.Body.Close()
+				// O spring boot padrão devolve 404 para /health se não tiver actuator
+				// O fato de recebermos uma resposta HTTP estruturada (não um erro de socket)
+				// já prova que o Tomcat/Undertow está vivo e processando requisições HTTPs.
+				return nil
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		return fmt.Errorf("timeout longo: O simulador não abriu a porta %d", port)
+		return fmt.Errorf("timeout longo: O simulador não respondeu HTTP na porta %d", port)
 	})
 }
 
@@ -103,11 +114,16 @@ func IsRunningCheck(st *state.SimuladorState) bool {
 		return false
 	}
 
-	// Double check with TCP to ensure it's not a zombie PID taken by another app
-	address := fmt.Sprintf("localhost:%d", st.Port)
-	conn, err := net.DialTimeout("tcp", address, 1*time.Second)
+	// Double check with HTTP to ensure it's not a zombie PID taken by another app
+	url := fmt.Sprintf("https://localhost:%d/health", st.Port)
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := http.Client{Timeout: 1 * time.Second, Transport: tr}
+	
+	resp, err := client.Get(url)
 	if err == nil {
-		conn.Close()
+		resp.Body.Close()
 		return true
 	}
 	return false
