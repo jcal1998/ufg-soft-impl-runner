@@ -14,11 +14,13 @@ import (
 const requiredJarVersion = "1.0.0"
 
 // PipelinePipeline struct handles the startup verify steps
+// Pipeline struct handles the startup verify steps
 type Pipeline struct {
-	BaseDir   string
-	JDKDir    string
-	JarPath   string
+	BaseDir    string
+	JDKDir     string
+	JarPath    string
 	TargetPort int
+	JarVersion string // Version dynamically resolved
 }
 
 // NewPipeline initializes a new pipeline to ensure the environment is ready
@@ -32,7 +34,7 @@ func NewPipeline(port int) (*Pipeline, error) {
 	return &Pipeline{
 		BaseDir:    baseDir,
 		JDKDir:     filepath.Join(baseDir, "jdk"),
-		JarPath:    filepath.Join(baseDir, "simulador.jar"),
+		JarPath:    filepath.Join(baseDir, "simulador.jar"), // Local path always remains same
 		TargetPort: port,
 	}, nil
 }
@@ -138,19 +140,60 @@ func (p *Pipeline) CheckJDK() error {
 	})
 }
 
-// CheckArtifact downloads simulador.jar from GitHub Releases if missing
+// CheckArtifact downloads simulador.jar from GitHub Releases dynamically and implements cache invalidation
 func (p *Pipeline) CheckArtifact() error {
-	if _, err := os.Stat(p.JarPath); err == nil {
-		ui.Success("Simulador (hubsaude-simulador.jar) encontrado.")
+	var latestVersion string
+	var downloadURL string
+
+	err := ui.RunWithSpinner("Consultando API do GitHub por novas versões do simulador...", func() error {
+		v, u, err := GetLatestSimuladorRelease()
+		if err != nil {
+			return err
+		}
+		latestVersion = v
+		downloadURL = u
 		return nil
+	})
+
+	if err != nil {
+		ui.Error(fmt.Sprintf("Erro ao consultar Github: %v", err))
+		// Fallback to local if offline
+		if _, err := os.Stat(p.JarPath); err == nil {
+			ui.Info("Usando simulador local (cache) devido a falha de rede.")
+			versionFile := filepath.Join(p.BaseDir, "simulador.version")
+			localVersionBytes, err := os.ReadFile(versionFile)
+			if err == nil {
+				p.JarVersion = strings.TrimSpace(string(localVersionBytes))
+			} else {
+				p.JarVersion = "unknown-offline"
+			}
+			return nil
+		}
+		return err
 	}
 
-	return ui.RunWithSpinner("Baixando Simulador Oficial do GitHub Releases...", func() error {
-		url := "https://github.com/kyriosdata/runner/releases/download/v0.0.2/hubsaude-simulador-0.0.0-SNAPSHOT.jar"
-		if err := DownloadFile(url, p.JarPath); err != nil {
+	p.JarVersion = latestVersion
+
+	// Check if local cache matches remote version
+	versionFile := filepath.Join(p.BaseDir, "simulador.version")
+	localVersionBytes, err := os.ReadFile(versionFile)
+	if err == nil {
+		localVersion := strings.TrimSpace(string(localVersionBytes))
+		if localVersion == latestVersion {
+			if _, err := os.Stat(p.JarPath); err == nil {
+				ui.Success(fmt.Sprintf("Simulador (v%s) já está atualizado no cache local.", latestVersion))
+				return nil
+			}
+		}
+	}
+
+	ui.Info(fmt.Sprintf("Nova versão detectada: %s. Iniciando download...", latestVersion))
+	return ui.RunWithSpinner(fmt.Sprintf("Baixando %s Oficial do GitHub Releases...", latestVersion), func() error {
+		if err := DownloadFile(downloadURL, p.JarPath); err != nil {
 			return fmt.Errorf("erro ao baixar jar: %v", err)
 		}
-		return nil
+		// Save the new version
+		return os.WriteFile(versionFile, []byte(latestVersion), 0644)
 	})
 }
 

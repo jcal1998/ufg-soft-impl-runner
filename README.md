@@ -24,13 +24,14 @@ Interface principal do utilizador.
   * *Cold Start:* Invocação tradicional e efémera (`java -jar`) para casos pontuais.
   * *Warm Start:* Inicia o assinador.jar em modo Servidor Web / Daemon (`daemon start`). Em seguida, envia os *inputs* via requisições HTTP REST (rotas `/sign` e `/validate`), baixando drasticamente a latência para processamentos contínuos.
 
-### B) Simulador CLI (`simulador` - Escrito em Go)
+### B) Simulador CLI (`simulador` - Escrito em Go) ✅ **[CONCLUÍDO]**
 Focado apenas na monitorização e execução do `simulador.jar`.
-* **Transferência automática:** Faz o *download* da última versão pelo GitHub Releases, armazenando-a com controle de integridade.
+* **Transferência automática e Dinâmica:** Faz o *download* da última versão pelo GitHub Releases varrendo a API oficial em tempo real, armazenando-a com controle de integridade e versão em Cache local.
+* **Zero Install JDK:** Antes de iniciar o simulador, garante que um JDK isolado e portátil está disponível na máquina.
 * **Gestão de Ciclo de Vida Avançado (Edge Cases):**
   * Mantém o registo num ficheiro *Lockfile* / *State JSON* único (`~/.hubsaude/state.json`) contendo PIDs e portos guardados.
-  * *Health Checks:* Verifica a saúde do servidor simulador Java através de rotas `HTTP GET /health`, evitando criar processos "zombie" (PIDs reaproveitados falsamente positivos do S.O.).
-  * Verificações rigorosas de portas em uso antes do arranque (`simulador start`, `simulador stop`).
+  * *Health Checks HTTPs:* Verifica a saúde do servidor simulador Java através de requisições web com pulo de verificação SSL em `https://localhost:8080/health`, evitando criar processos "zombie" (PIDs reaproveitados falsamente positivos do S.O.) ou devolver a tela ao usuário antes da inicialização plena.
+  * Verificações rigorosas de TCP Ports (portas em uso) antes do arranque prevenindo `PortInUseException` (`simulador start`, `simulador stop`).
 
 ### C) Assinador Backend (`assinador.jar` - Escrito em Java)
 * O núcleo de Validação FHIR (via biblioteca como HAPI FHIR) baseada rigorosamente nos *Guidelines* de criação de assinatura digital da SES.GO.
