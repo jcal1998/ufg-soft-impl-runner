@@ -7,31 +7,42 @@ package com.kyriosdata.assinador.domain;
  */
 public class SignRequest {
     
-    /**
-     * O conteúdo original que se deseja assinar.
-     */
-    private String content;
-
-    /**
-     * Token de autenticação, credencial ou PIN opcional.
-     */
-    private String token;
+    private String payload;
+    private String keyType; // "TOKEN", "PEM", "PKCS12"
+    private String keyPath;
+    private String pinOrPassword;
 
     public SignRequest() {}
 
-    public String getContent() {
-        return content;
+    public String getPayload() {
+        return payload;
     }
 
-    public void setContent(String content) {
-        this.content = content;
+    public void setPayload(String payload) {
+        this.payload = payload;
     }
 
-    public String getToken() {
-        return token;
+    public String getKeyType() {
+        return keyType;
     }
 
-    public void setToken(String token) {
-        this.token = token;
+    public void setKeyType(String keyType) {
+        this.keyType = keyType;
+    }
+
+    public String getKeyPath() {
+        return keyPath;
+    }
+
+    public void setKeyPath(String keyPath) {
+        this.keyPath = keyPath;
+    }
+
+    public String getPinOrPassword() {
+        return pinOrPassword;
+    }
+
+    public void setPinOrPassword(String pinOrPassword) {
+        this.pinOrPassword = pinOrPassword;
     }
 }
