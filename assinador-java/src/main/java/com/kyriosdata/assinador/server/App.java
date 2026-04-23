@@ -13,8 +13,8 @@ public class App {
     private static final Logger logger = LoggerFactory.getLogger(App.class);
     private static final ObjectMapper mapper = new ObjectMapper();
     
-    // Default mock service until full implementation is provided
-    private static SignatureService signatureService = new com.kyriosdata.assinador.FakeSignatureService();
+    // Real implementation connecting to PKCS#11 hardware drivers
+    private static SignatureService signatureService = new com.kyriosdata.assinador.SignatureServiceImpl();
 
     public static void main(String[] args) {
         int port = 8081; // Default port
