@@ -37,6 +37,13 @@
             <version>2.17.0</version>
         </dependency>
 
+        <!-- Nimbus JOSE+JWT for JWS Generation -->
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+            <version>9.37.3</version>
+        </dependency>
+
         <!-- JUnit 5 para testes -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
