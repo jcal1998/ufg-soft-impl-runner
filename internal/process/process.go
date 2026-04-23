@@ -28,7 +28,7 @@ func findJavaExec(jdkDir string) (string, error) {
 		}
 		return nil
 	})
-	
+
 	if err != nil && err != io.EOF {
 		return "", err
 	}
@@ -46,7 +46,7 @@ func StartBackground(port int, jarVersion string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	jarPath := filepath.Join(home, ".hubsaude", "simulador.jar")
 
 	cmd := exec.Command(jdkPath, "-jar", jarPath, fmt.Sprintf("--server.port=%d", port))
@@ -74,32 +74,30 @@ func StartBackground(port int, jarVersion string) error {
 
 // WaitForHealth aguarda ativamente a API retornar resposta HTTP (ignora SSL)
 func WaitForHealth(port int) error {
-	// A spec cita https://localhost:8443, então se mudarmos a porta, devemos checar https
-	url := fmt.Sprintf("https://localhost:%d/health", port)
-	
+	url := fmt.Sprintf("https://localhost:%d/api/info", port)
+
 	// Como o certificado localhost é self-signed, precisamos pular a verificação TLS
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	client := http.Client{Timeout: 2 * time.Second, Transport: tr}
 
-	return ui.RunWithSpinner("Aguardando inicialização do Simulador (Health Check HTTP)...", func() error {
+	return ui.RunWithSpinner("Aguardando inicialização do Simulador (HTTP Check)...", func() error {
 		for i := 0; i < 40; i++ { // wait up to 20 seconds (500ms * 40)
 			resp, err := client.Get(url)
 			if err == nil {
 				resp.Body.Close()
-				// O spring boot padrão devolve 404 para /health se não tiver actuator
-				// O fato de recebermos uma resposta HTTP estruturada (não um erro de socket)
-				// já prova que o Tomcat/Undertow está vivo e processando requisições HTTPs.
-				return nil
+				if resp.StatusCode == 200 {
+					return nil
+				}
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		return fmt.Errorf("timeout longo: O simulador não respondeu HTTP na porta %d", port)
+		return fmt.Errorf("timeout longo: O simulador não respondeu na porta %d", port)
 	})
 }
 
-// IsRunningCheck verifica se existe um processo ativo e respondendo na porta TCP
+// IsRunningCheck verifica se existe um processo ativo e respondendo na web
 func IsRunningCheck(st *state.SimuladorState) bool {
 	if st == nil || st.PID == 0 {
 		return false
@@ -115,37 +113,47 @@ func IsRunningCheck(st *state.SimuladorState) bool {
 	}
 
 	// Double check with HTTP to ensure it's not a zombie PID taken by another app
-	url := fmt.Sprintf("https://localhost:%d/health", st.Port)
+	url := fmt.Sprintf("https://localhost:%d/api/info", st.Port)
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	client := http.Client{Timeout: 1 * time.Second, Transport: tr}
-	
+
 	resp, err := client.Get(url)
 	if err == nil {
 		resp.Body.Close()
-		return true
+		if resp.StatusCode == 200 {
+			return true
+		}
 	}
 	return false
 }
 
-// Stop mata o processo de forma limpa enviando SIGTERM
+// Stop encerra o simulador de forma controlada via endpoint REST (graceful shutdown)
 func Stop(st *state.SimuladorState) error {
 	if !IsRunningCheck(st) {
-		return fmt.Errorf("processo não está em execução")
+		return fmt.Errorf("processo não está em execução ou não responde")
 	}
 
-	process, err := os.FindProcess(st.PID)
+	url := fmt.Sprintf("https://localhost:%d/shutdown", st.Port)
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := http.Client{Timeout: 5 * time.Second, Transport: tr}
+
+	resp, err := client.Post(url, "application/json", nil)
 	if err != nil {
-		return err
+		// Fallback para SIGTERM caso o HTTP falhe
+		ui.Error(fmt.Sprintf("Falha no graceful shutdown HTTP: %v. Forçando SIGTERM...", err))
+		process, err := os.FindProcess(st.PID)
+		if err == nil {
+			process.Signal(syscall.SIGTERM)
+		}
+	} else {
+		resp.Body.Close()
 	}
 
-	err = process.Signal(syscall.SIGTERM)
-	if err != nil {
-		return fmt.Errorf("falha ao enviar SIGTERM: %v", err)
-	}
-
-	ui.Success(fmt.Sprintf("Processo (PID: %d) finalizado graciosamente.", st.PID))
+	ui.Success(fmt.Sprintf("Processo (PID: %d) finalizado via /shutdown.", st.PID))
 
 	// Clean up state
 	currentState, _ := state.Load()
