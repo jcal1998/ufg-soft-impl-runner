@@ -45,7 +45,7 @@ var startCmd = &cobra.Command{
 
 		ui.Info("Ambiente pronto. Procedendo com arranque em background...")
 
-		err = process.StartBackground(port)
+		err = process.StartBackground(port, pipeline.JarVersion)
 		if err != nil {
 			ui.Error(fmt.Sprintf("Não foi possível iniciar o servidor: %v", err))
 			return
@@ -57,5 +57,5 @@ var startCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(startCmd)
-	startCmd.Flags().IntVarP(&port, "port", "p", 8080, "Porta local para o daemon do simulador")
+	startCmd.Flags().IntVarP(&port, "port", "p", 8443, "Porta local para o daemon do simulador")
 }
