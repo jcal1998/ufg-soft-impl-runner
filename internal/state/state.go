@@ -16,9 +16,19 @@ type SimuladorState struct {
 	LastStarted time.Time `json:"last_started"`
 }
 
+// AssinadorState representa o estado atual do assinador.jar (Motor Java).
+type AssinadorState struct {
+	PID         int       `json:"pid"`
+	Port        int       `json:"port"`
+	JDKPath     string    `json:"jdk_path"`
+	JarPath     string    `json:"jar_path"`
+	LastStarted time.Time `json:"last_started"`
+}
+
 // HubSaudeState representa a raiz do state.json
 type HubSaudeState struct {
 	Simulador *SimuladorState `json:"simulador,omitempty"`
+	Assinador *AssinadorState `json:"assinador,omitempty"`
 }
 
 var stateFilePath string
