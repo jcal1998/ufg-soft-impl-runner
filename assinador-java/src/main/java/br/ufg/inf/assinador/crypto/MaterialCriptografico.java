@@ -1,4 +1,4 @@
-package com.kyriosdata.assinador.crypto;
+package br.ufg.inf.assinador.crypto;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

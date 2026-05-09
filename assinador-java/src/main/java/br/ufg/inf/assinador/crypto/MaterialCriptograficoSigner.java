@@ -1,4 +1,4 @@
-package com.kyriosdata.assinador.crypto;
+package br.ufg.inf.assinador.crypto;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;

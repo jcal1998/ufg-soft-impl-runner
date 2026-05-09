@@ -1,10 +1,10 @@
-package com.kyriosdata.assinador;
+package br.ufg.inf.assinador;
 
-import com.kyriosdata.assinador.crypto.MaterialCriptografico;
-import com.kyriosdata.assinador.crypto.MaterialCriptograficoSigner;
-import com.kyriosdata.assinador.domain.SignRequest;
-import com.kyriosdata.assinador.domain.SignatureResponse;
-import com.kyriosdata.assinador.domain.ValidateRequest;
+import br.ufg.inf.assinador.crypto.MaterialCriptografico;
+import br.ufg.inf.assinador.crypto.MaterialCriptograficoSigner;
+import br.ufg.inf.assinador.domain.SignRequest;
+import br.ufg.inf.assinador.domain.SignatureResponse;
+import br.ufg.inf.assinador.domain.ValidateRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

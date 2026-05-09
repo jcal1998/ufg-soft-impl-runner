@@ -1,4 +1,4 @@
-package com.kyriosdata.assinador.domain;
+package br.ufg.inf.assinador.domain;
 
 public class SignatureResponse {
     private String signature;

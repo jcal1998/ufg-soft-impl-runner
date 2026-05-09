@@ -1,10 +1,10 @@
-package com.kyriosdata.assinador.server;
+package br.ufg.inf.assinador.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kyriosdata.assinador.SignatureService;
-import com.kyriosdata.assinador.domain.SignRequest;
-import com.kyriosdata.assinador.domain.SignatureResponse;
-import com.kyriosdata.assinador.domain.ValidateRequest;
+import br.ufg.inf.assinador.SignatureService;
+import br.ufg.inf.assinador.domain.SignRequest;
+import br.ufg.inf.assinador.domain.SignatureResponse;
+import br.ufg.inf.assinador.domain.ValidateRequest;
 import io.javalin.Javalin;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,7 +14,7 @@ public class App {
     private static final ObjectMapper mapper = new ObjectMapper();
     
     // Real implementation connecting to PKCS#11 hardware drivers
-    private static SignatureService signatureService = new com.kyriosdata.assinador.SignatureServiceImpl();
+    private static SignatureService signatureService = new br.ufg.inf.assinador.SignatureServiceImpl();
 
     public static void main(String[] args) {
         int port = 8081; // Default port
