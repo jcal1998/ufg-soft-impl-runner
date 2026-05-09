@@ -1,25 +1,25 @@
 package com.kyriosdata.assinador;
 
-import com.kyriosdata.assinador.crypto.Pkcs11TokenService;
+import com.kyriosdata.assinador.crypto.MaterialCriptografico;
+import com.kyriosdata.assinador.crypto.MaterialCriptograficoSigner;
 import com.kyriosdata.assinador.domain.SignRequest;
 import com.kyriosdata.assinador.domain.SignatureResponse;
 import com.kyriosdata.assinador.domain.ValidateRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.security.KeyStore;
-import java.security.PrivateKey;
-import java.security.Signature;
-import java.security.cert.Certificate;
-import java.util.Base64;
-import java.util.Enumeration;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSObject;
+import com.nimbusds.jose.Payload;
+import com.nimbusds.jose.util.Base64;
+import java.security.cert.X509Certificate;
+import java.util.Collections;
 
 public class SignatureServiceImpl implements SignatureService {
     private static final Logger logger = LoggerFactory.getLogger(SignatureServiceImpl.class);
-    private final Pkcs11TokenService tokenService;
 
     public SignatureServiceImpl() {
-        this.tokenService = new Pkcs11TokenService();
     }
 
     @Override
@@ -29,41 +29,44 @@ public class SignatureServiceImpl implements SignatureService {
         }
 
         try {
-            KeyStore keyStore;
-            PrivateKey privateKey = null;
+            MaterialCriptografico mc = null;
             
             if ("TOKEN".equalsIgnoreCase(request.getKeyType())) {
-                keyStore = tokenService.loadHardwareToken(request.getPinOrPassword(), null);
-                
-                // Pega a primeira chave privada encontrada no token
-                Enumeration<String> aliases = keyStore.aliases();
-                while (aliases.hasMoreElements()) {
-                    String alias = aliases.nextElement();
-                    if (keyStore.isKeyEntry(alias)) {
-                        privateKey = (PrivateKey) keyStore.getKey(alias, null); // PKCS11 usually ignores the password here
-                        logger.info("Chave privada encontrada no Token (Alias: {})", alias);
-                        break;
-                    }
-                }
+                // Instancia o MC com os dados básicos
+                mc = new MaterialCriptografico(
+                    request.getPinOrPassword() != null ? request.getPinOrPassword().toCharArray() : new char[0],
+                    "SoftHSM",
+                    0,
+                    "Token1"
+                );
             } else {
-                // Futura implementação para PEM ou PKCS12
-                return new SignatureResponse(null, false, "O tipo de chave " + request.getKeyType() + " ainda não está implementado no Backend.");
+                return new SignatureResponse(null, false, "O tipo de chave " + request.getKeyType() + " ainda não está implementado.");
             }
 
-            if (privateKey == null) {
-                return new SignatureResponse(null, false, "Nenhuma chave privada foi encontrada no dispositivo de assinatura.");
+            if (mc == null || !mc.isAvailable()) {
+                return new SignatureResponse(null, false, "Material Criptográfico não pôde ser carregado ou não está disponível.");
             }
 
-            // Gerar a assinatura bruta (Raw Signature) usando SHA256withRSA
-            Signature signature = Signature.getInstance("SHA256withRSA");
-            signature.initSign(privateKey);
-            signature.update(request.getPayload().getBytes("UTF-8"));
+            X509Certificate certificate = mc.getPublicKey();
+
+            // Construir o Header do JWS conforme padrão (RS256 + x5c com o certificado)
+            JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.RS256)
+                    .x509CertChain(Collections.singletonList(Base64.encode(certificate.getEncoded())))
+                    .build();
+
+            // O Payload é o JSON do Provenance (montado pelo cliente/CLI)
+            Payload payload = new Payload(request.getPayload());
+
+            // Juntar no objeto JWS e assinar usando o custom JWSSigner que invoca o MC
+            JWSObject jwsObject = new JWSObject(header, payload);
+            MaterialCriptograficoSigner signer = new MaterialCriptograficoSigner(mc);
+            jwsObject.sign(signer);
             
-            byte[] digitalSignature = signature.sign();
-            String base64Signature = Base64.getEncoder().encodeToString(digitalSignature);
+            // Serializar no formato Compacto (Header.Payload.Signature)
+            String jwsString = jwsObject.serialize();
             
-            logger.info("Assinatura gerada com sucesso.");
-            return new SignatureResponse(base64Signature, true, "Assinado com sucesso pelo dispositivo de hardware.");
+            logger.info("Assinatura JWS gerada com sucesso via Material Criptográfico (SoftHSM2).");
+            return new SignatureResponse(jwsString, true, "JWS Assinado com sucesso pelo dispositivo.");
 
         } catch (Exception e) {
             logger.error("Falha ao assinar payload: ", e);
@@ -73,7 +76,6 @@ public class SignatureServiceImpl implements SignatureService {
 
     @Override
     public SignatureResponse validate(ValidateRequest request) {
-        // Futuro: Validar assinatura com a chave pública
         return new SignatureResponse(null, false, "A validação (Validate) ainda não está implementada no Motor.");
     }
 }
